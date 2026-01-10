@@ -1,0 +1,139 @@
+import numpy as np
+import matplotlib.pyplot as plt
+from matplotlib.widgets import Slider
+
+# ------------------------
+# Parameters
+# ------------------------
+L = 200
+Du, Dv = 0.16, 0.08
+noise = 0.05
+default_F = 0.030
+default_k = 0.060
+default_steps = 5000
+
+# ------------------------
+# Laplacian
+# ------------------------
+def laplacian(Z):
+    return -4*Z + np.roll(Z,1,0) + np.roll(Z,-1,0) + np.roll(Z,1,1) + np.roll(Z,-1,1)
+
+# ------------------------
+# Pufferfish mask
+# ------------------------
+def pufferfish_mask(n_spikes=28, spike_len=18, spike_angle_width=0.06):
+    """
+    Elliptical puffer body with radial spike sectors around the perimeter
+    and two small eye-holes (cleared regions).
+    """
+    Y, X = np.ogrid[:L, :L]
+    cx, cy = L//2, L//2
+    dx = X - cx
+    dy = Y - cy
+    r = np.sqrt(dx**2 + dy**2)
+    theta = np.arctan2(dy, dx)
+
+    # Elliptical body (slightly round)
+    a = 62.0  # horizontal radius
+    b = 50.0  # vertical radius
+    body = ((dx)**2)/a**2 + ((dy)**2)/b**2 <= 1.0
+
+    mask = np.zeros((L, L), dtype=float)
+    mask[body] = 1.0
+
+    # Add radial spike sectors (extend outward from the ellipse perimeter)
+    spike_angles = np.linspace(-np.pi, np.pi, n_spikes, endpoint=False)
+    for ang in spike_angles:
+        ang_diff = np.mod(theta - ang + np.pi, 2*np.pi) - np.pi  # signed difference in [-pi,pi]
+        sector = np.abs(ang_diff) <= spike_angle_width/2
+
+        # approximate body boundary radius at this angle (ellipse param)
+        cos_a = np.cos(ang)
+        sin_a = np.sin(ang)
+        denom = (cos_a**2)/(a**2) + (sin_a**2)/(b**2)
+        r_body = 1.0/np.sqrt(denom)
+
+        spike_region = (r >= r_body) & (r <= (r_body + spike_len)) & sector
+        mask[spike_region] = 1.0
+
+    # Eyes: small circular holes where pattern is removed
+    eye_rx = 16
+    eye_ry = 10
+    eye_r = 5
+    left_eye = (dx + eye_rx)**2 + (dy - eye_ry)**2 <= eye_r**2
+    right_eye = (dx - eye_rx)**2 + (dy - eye_ry)**2 <= eye_r**2
+    mask[left_eye] = 0.0
+    mask[right_eye] = 0.0
+
+    return mask
+
+mask = pufferfish_mask(n_spikes=28, spike_len=18, spike_angle_width=0.06)
+
+# ------------------------
+# Simulation function
+# ------------------------
+def run_simulation(F, k, steps):
+    u = np.ones((L, L))
+    v = np.zeros((L, L))
+    r0 = 20
+    u[L//2-r0:L//2+r0, L//2-r0:L//2+r0] = 0.5
+    v[L//2-r0:L//2+r0, L//2-r0:L//2+r0] = 0.25
+
+    # seed noise stronger on body so patterns form on the puffer shape
+    v += noise * np.random.random((L, L)) * mask
+
+    for _ in range(steps):
+        Lu = laplacian(u)
+        Lv = laplacian(v)
+        uvv = u * v * v
+        u += (Du*Lu - uvv + F*(1-u))
+        v += (Dv*Lv + uvv - (F+k)*v)
+
+        # keep concentrations only inside the mask (body + spikes)
+        u *= mask
+        v *= mask
+
+    v_plot = np.where(mask==1, v, np.nan)
+    return v_plot
+
+# ------------------------
+# Initial plot
+# ------------------------
+fig, ax = plt.subplots(figsize=(6,6))
+plt.subplots_adjust(left=0.25, bottom=0.35)
+v_plot = run_simulation(default_F, default_k, default_steps)
+im = ax.imshow(v_plot, cmap='plasma')
+ax.set_title("Pufferfish Pattern")
+ax.axis('off')
+
+# ------------------------
+# Slider axes
+# ------------------------
+axF = plt.axes([0.25, 0.25, 0.65, 0.03])
+axk = plt.axes([0.25, 0.2, 0.65, 0.03])
+axSteps = plt.axes([0.25, 0.15, 0.65, 0.03])
+
+sF = Slider(axF, 'F', 0.005, 0.08, valinit=default_F, valstep=0.001)
+sk = Slider(axk, 'k', 0.005, 0.08, valinit=default_k, valstep=0.001)
+sSteps = Slider(axSteps, 'Steps', 1000, 15000, valinit=default_steps, valstep=1000)
+
+# ------------------------
+# Update function
+# ------------------------
+def update(val):
+    F = sF.val
+    k = sk.val
+    steps = int(sSteps.val)
+    v_plot = run_simulation(F, k, steps)
+    im.set_data(v_plot)
+    ax.set_title(f"Pufferfish Pattern (F={F:.4f}, k={k:.4f}, steps={steps})")
+    fig.canvas.draw_idle()
+
+sF.on_changed(update)
+sk.on_changed(update)
+sSteps.on_changed(update)
+
+# ------------------------
+# Show interactive plot
+# ------------------------
+plt.show()

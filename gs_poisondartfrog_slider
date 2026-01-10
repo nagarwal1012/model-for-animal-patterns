@@ -1,0 +1,109 @@
+import numpy as np
+import matplotlib.pyplot as plt
+from matplotlib.widgets import Slider
+
+# ------------------------
+# Parameters
+# ------------------------
+L = 200
+Du, Dv = 0.16, 0.08
+noise = 0.05
+default_F = 0.038
+default_k = 0.062
+default_steps = 6000
+
+# ------------------------
+# Laplacian
+# ------------------------
+def laplacian(Z):
+    return -4*Z + np.roll(Z,1,0)+np.roll(Z,-1,0)+np.roll(Z,1,1)+np.roll(Z,-1,1)
+
+# ------------------------
+# Stadium (frog body) mask
+# ------------------------
+def frog_mask():
+    Y, X = np.ogrid[:L, :L]
+    cx, cy = L//2, L//2
+    a = 65  # horizontal radius
+    b = 45  # vertical radius
+    r = 25  # rounded ends
+    mask = np.zeros((L, L), dtype=float)
+
+    # Central rectangle
+    rect = (abs(X - cx) <= a) & (abs(Y - cy) <= b)
+    mask[rect] = 1.0
+
+    # Rounded ends (stadium shape)
+    left_circle = (X - (cx - a))**2 + (Y - cy)**2 <= r**2
+    right_circle = (X - (cx + a))**2 + (Y - cy)**2 <= r**2
+    mask[left_circle | right_circle] = 1.0
+
+    return mask
+
+mask = frog_mask()
+
+# ------------------------
+# Simulation function
+# ------------------------
+def run_simulation(F, k, steps):
+    u = np.ones((L, L))
+    v = np.zeros((L, L))
+    r0 = 20
+    u[L//2 - r0:L//2 + r0, L//2 - r0:L//2 + r0] = 0.5
+    v[L//2 - r0:L//2 + r0, L//2 - r0:L//2 + r0] = 0.25
+    v += noise * np.random.random((L, L))
+
+    for _ in range(steps):
+        Lu = laplacian(u)
+        Lv = laplacian(v)
+        uvv = u * v * v
+        u += Du * Lu - uvv + F * (1 - u)
+        v += Dv * Lv + uvv - (F + k) * v
+
+        u *= mask
+        v *= mask
+
+    v_plot = np.where(mask == 1, v, np.nan)
+    return v_plot
+
+# ------------------------
+# Initial plot
+# ------------------------
+fig, ax = plt.subplots(figsize=(6, 6))
+plt.subplots_adjust(left=0.25, bottom=0.35)
+v_plot = run_simulation(default_F, default_k, default_steps)
+im = ax.imshow(v_plot, cmap='viridis')
+ax.set_title("Poison Dart Frog Pattern")
+ax.axis('off')
+
+# ------------------------
+# Slider axes
+# ------------------------
+axF = plt.axes([0.25, 0.25, 0.65, 0.03])
+axk = plt.axes([0.25, 0.2, 0.65, 0.03])
+axSteps = plt.axes([0.25, 0.15, 0.65, 0.03])
+
+sF = Slider(axF, 'F', 0.02, 0.07, valinit=default_F, valstep=0.001)
+sk = Slider(axk, 'k', 0.045, 0.075, valinit=default_k, valstep=0.001)
+sSteps = Slider(axSteps, 'Steps', 1000, 15000, valinit=default_steps, valstep=1000)
+
+# ------------------------
+# Update function
+# ------------------------
+def update(val):
+    F = sF.val
+    k = sk.val
+    steps = int(sSteps.val)
+    v_plot = run_simulation(F, k, steps)
+    im.set_data(v_plot)
+    ax.set_title(f"Poison Dart Frog (F={F:.4f}, k={k:.4f}, steps={steps})")
+    fig.canvas.draw_idle()
+
+sF.on_changed(update)
+sk.on_changed(update)
+sSteps.on_changed(update)
+
+# ------------------------
+# Show plot
+# ------------------------
+plt.show()
