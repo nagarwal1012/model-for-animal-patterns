@@ -19,7 +19,7 @@ def laplacian(Z):
     return -4*Z + np.roll(Z,1,0)+np.roll(Z,-1,0)+np.roll(Z,1,1)+np.roll(Z,-1,1)
 
 # ------------------------
-# Cow mask
+# Mask
 # ------------------------
 def cow_mask():
     Y, X = np.ogrid[:L,:L]
